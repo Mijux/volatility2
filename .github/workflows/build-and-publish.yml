@@ -1,0 +1,91 @@
+name: Build and publish
+
+on:
+  schedule:
+    - cron: '01 10 10 * *'
+  workflow_dispatch:
+
+env:
+  DOCKER_REGISTRY: docker.io
+  GITHUB_REGISTRY: ghcr.io
+  IMAGE_NAME: volatility2
+
+jobs:
+  check-alpine-update:
+    runs-on: ubuntu-latest
+    outputs:
+      latest_tag: ${{ steps.check-alpine.outputs.latest_tag }}
+    steps:
+      - name: Check on Docker Hub for latest Alpine Linux image
+        id: check-alpine
+        run: |
+          LATEST_ALPINE_TAG=$(curl -s 'https://registry.hub.docker.com/v2/repositories/library/alpine/tags?page=1&page_size=2' | \
+            jq -r '.results[] | select(.name | test("^[0-9.]+$")) | .name' | sort | uniq | head -n 1)
+          
+          echo "latest_tag=$LATEST_ALPINE_TAGS" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Check if image exists
+        id: check-image
+        run: |
+          # Check Docker Hub
+          DOCKERHUB_CHECK=$(curl -s -f "https://hub.docker.com/v2/repositories/$DOCKERHUB_USERNAME/$IMAGE_NAME/tags/${{ steps.check-alpine.outputs.latest_tag }}" || echo "")
+          
+          if [ -n "$DOCKERHUB_CHECK" ]; then
+            echo "Image with version ${{ steps.extract-version.outputs.version }} already exists"
+            exit 0
+          else
+            echo "Image with version ${{ steps.extract-version.outputs.version }} does not exist"
+          fi
+
+  build-and-publish:
+    needs: check-alpine-update
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.DOCKER_REGISTRY }}
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      
+      - name: Log in to Github registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GITHUB_REGISTRY }}
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.REGISTRYGITHUB_TOKEN }}
+
+      - name: Update version
+        run: |
+          sed -i 's/ARG ALPINE_VERSION="[0-9]*"$/ARG ALPINE_VERSION=${{ needs.check-alpine-update.outputs.latest_tag }}/g' Dockerfile
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.DOCKER_REGISTRY }}/${{ vars.DOCKERHUB_USERNAME }}/${{ env.IMAGE_NAME }}
+            ${{ env.GITHUB_REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.check-alpine-update.outputs.latest_tag }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.check-alpine-update.outputs.latest_tag }}
+            type=semver,pattern={{major}},value=v${{ needs.check-alpine-update.outputs.latest_tag }}
+            type=sha
+            type=raw,value=latest
+      
+      - name: Build and push Docker image
+        id: build-and-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
