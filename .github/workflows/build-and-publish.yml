@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       latest_tag: ${{ steps.check-alpine.outputs.latest_tag }}
+      build_required: ${{ steps.check-image.outputs.build_required }}
     steps:
       - name: Check on Docker Hub for latest Alpine Linux image
         id: check-alpine
@@ -28,17 +29,19 @@ jobs:
         id: check-image
         run: |
           # Check Docker Hub
-          DOCKERHUB_CHECK=$(curl -s -f "https://hub.docker.com/v2/repositories/$DOCKERHUB_USERNAME/$IMAGE_NAME/tags/${{ steps.check-alpine.outputs.latest_tag }}" || echo "")
+          DOCKERHUB_CHECK=$(curl -s -f "https://hub.docker.com/v2/repositories/${{ vars.DOCKERHUB_USERNAME }}/$IMAGE_NAME/tags/${{ steps.check-alpine.outputs.latest_tag }}" || echo "")
           
           if [ -n "$DOCKERHUB_CHECK" ]; then
-            echo "Image with version ${{ steps.extract-version.outputs.version }} already exists"
-            exit 0
+            echo "Image with version ${{ steps.check-alpine.outputs.latest_tag }} already exists"
+            echo build_required="false" | tee -a "$GITHUB_OUTPUT"
           else
-            echo "Image with version ${{ steps.extract-version.outputs.version }} does not exist"
+            echo "Image with version ${{ steps.check-alpine.outputs.latest_tag }} does not exist"
+            echo build_required="true" | tee -a "$GITHUB_OUTPUT"
           fi
 
   build-and-publish:
     needs: check-alpine-update
+    if: needs.check-alpine-update.outputs.build_required == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
