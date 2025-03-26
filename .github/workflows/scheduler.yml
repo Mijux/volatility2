@@ -1,0 +1,32 @@
+name: Schedule update
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  check-alpine-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check on Docker Hub for latest Alpine Linux image
+        id: check-alpine
+        run: |
+          LATEST_ALPINE_TAG=$(curl -s 'https://registry.hub.docker.com/v2/repositories/library/alpine/tags?page=1&page_size=2' | \
+            jq -r '.results[] | select(.name | test("^[0-9.]+$")) | .name' | sort | uniq | head -n 1)
+          
+          echo "latest_tag=$LATEST_ALPINE_TAGS" | tee -a $GITHUB_OUTPUT
+
+  trigger-docker-build:
+    needs: check-alpine-update
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Build and publish
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.REGISTRYGITHUB_TOKEN }}
+          event-type: alpine-base-image-update
+          client-payload: |
+            {
+              "alpine_tag": "${{ needs.check-alpine-update.outputs.latest_tag }}"
+            }
