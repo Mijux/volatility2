@@ -22,7 +22,7 @@ jobs:
           LATEST_ALPINE_TAG=$(curl -s 'https://registry.hub.docker.com/v2/repositories/library/alpine/tags?page=1&page_size=2' | \
             jq -r '.results[] | select(.name | test("^[0-9.]+$")) | .name' | sort | uniq | head -n 1)
           
-          echo "latest_tag=$LATEST_ALPINE_TAGS" | tee -a "$GITHUB_OUTPUT"
+          echo latest_tag=$LATEST_ALPINE_TAG | tee -a "$GITHUB_OUTPUT"
 
       - name: Check if image exists
         id: check-image
