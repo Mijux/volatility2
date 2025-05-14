@@ -2,7 +2,7 @@ name: Build and publish
 
 on:
   schedule:
-    - cron: '01 10 */2 * *'
+    - cron: '10 01 * * 1'
   workflow_dispatch:
 
 env:
